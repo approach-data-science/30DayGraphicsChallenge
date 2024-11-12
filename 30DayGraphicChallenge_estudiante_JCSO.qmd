@@ -1,0 +1,1362 @@
+---
+title: "30 Day Graphics Challenge"
+author: Jhon Carlos Solis Ochoa
+format: 
+  html: 
+    embed-resources: true
+editor: visual
+---
+
+## 30 Day Challenge
+
+Se cargan las librerias necesarias
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+if(!require("tidyverse")) install.packages("tidyverse")
+if(!require("sf")) install.packages("sf")
+if(!require("elevatr")) install.packages("elevatr")
+if(!require("terra")) install.packages("terra")
+if(!require("whitebox")) install.packages("whitebox")
+if(!require("tidyterra")) install.packages("tidyterra")
+if(!require("giscoR")) install.packages("giscoR")
+if(!require("ggnewscale")) install.packages("ggnewscale")
+if(!require("ggblend")) install.packages("ggblend")
+if(!require("httr2")) install.packages("httr2")
+if(!require("eurostat")) install.packages("eurostat")
+if(!require("osmdata")) install.packages("osmdata")
+if(!require("ggrepel")) install.packages("ggrepel")
+if(!require("ggrepel")) install.packages("fmsb")
+if(!require("waffle")) install.packages("waffle")
+if(!require("tidygeocoder")) install.packages("tidygeocoder")
+if(!require("leaflet")) install.packages("leaflet")
+if(!require("leaflet.extras")) install.packages("leaflet.extras")
+if(!require("tidyverse")) install.packages("tidyverse")
+if(!require("data.tree")) install.packages("data.tree")
+if(!require("DiagrammeR")) install.packages("DiagrammeR")
+if(!require("igraph")) install.packages("igraph")
+if(!require("ggraph")) install.packages("ggraph")
+if(!require("scales")) install.packages("scales")
+if(!require("zoo")) install.packages("zoo")
+library(zoo)
+
+
+library(data.tree)
+
+# paquetes
+library(sf)
+library(elevatr)
+library(tidyverse)
+library(terra)
+library(whitebox)
+library(ggnewscale)
+library(tidyterra)
+library(giscoR)
+library(units)
+library(ggblend)
+library(osmdata)
+
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(fmsb)
+library(waffle)
+library(tidygeocoder)
+library(leaflet)
+library(leaflet.extras)
+library(tidyverse)
+library(igraph)
+library(ggraph)
+library(scales)
+library(arrow)
+
+library(knitr)
+```
+
+### Dia 1
+
+Se tomaran los datos desde la fuente de datos libres del gobierno de Colombia
+
+<https://www.datos.gov.co/>
+
+Para este primer día se toma como referencia los dias hidrobiologicos y nos centraremos en el departamento de Bolivar
+
+```{r}
+datos <- read_parquet("./temperatura_media_bolivar.parquet/part-00000-ab3570a7-e502-472d-aa94-39e00b4f5101-c000.snappy.parquet")
+head(datos)
+```
+
+```{r}
+#Datos filtrados 
+datos_filtrados <- datos %>% filter( Año == 2020 & Mes == 1)
+datos_filtrados <-  datos_filtrados %>% mutate(Porcentaje = TemperaturaMedia / sum(TemperaturaMedia) * 100)
+
+
+ggplot(datos_filtrados, aes(x = "", y = Porcentaje, fill = Municipio)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y", start = 0) +
+  labs(title = "Proporción de Temperatura Media por Municipio (Enero 2020)") +
+  theme_void() +
+  theme(legend.position = "right") +
+  geom_text(aes(label = paste0(round(Porcentaje, 1), "%")), 
+            position = position_stack(vjust = 0.5), size = 4, color = "white") +
+  scale_fill_manual(values = c("#FF9999", "#66B3FF", "#99FF99", "#FFCC99", "#FFD700"))
+
+```
+
+Este gráfico de anillos muestra los porcentajes de temperatura media para cada municipio, con etiquetas de porcentaje en blanco directamente en cada sección. Los colores personalizados hacen que cada segmento sea fácilmente distinguible.
+
+### Dia 2
+
+```{r, warning=FALSE}
+datos_resumidos <- datos_filtrados %>%
+  group_by(Municipio) %>%
+  summarise(TemperaturaMedia = mean(TemperaturaMedia, na.rm = TRUE))
+
+# Convertir los datos a un formato ancho
+datos_radar <- datos_resumidos %>%
+  pivot_wider(names_from = Municipio, values_from = TemperaturaMedia)
+
+# Agregar filas con los valores máximos y mínimos para definir los límites del gráfico
+max_min <- data.frame(matrix(c(50, 0), ncol = ncol(datos_radar), nrow = 2))
+colnames(max_min) <- colnames(datos_radar)
+
+# Combinar los límites y los datos para el gráfico
+datos_radar <- rbind(max_min, datos_radar)
+
+
+par(mar = c(1, 1, 1, 1))  # Reducir los márgenes
+par(cex = 1.24)  # Ajustar el tamaño general de la figura
+
+# Crear el gráfico de radar
+radarchart(datos_radar, 
+           axistype = 1,
+           pcol = c("skyblue", "pink"),  # Colores de las líneas
+           pfcol = c(rgb(0.2, 0.5, 0.5, 0.5), rgb(0.8, 0.2, 0.5, 0.5)),  # Colores de relleno
+           plwd = 2,  # Grosor de las líneas
+           cglcol = "grey",  # Color de las líneas de la cuadrícula
+           cglty = 1,  # Tipo de línea de la cuadrícula
+           axislabcol = "grey",  # Color de los números en los ejes
+           cglwd = 0.8,  # Grosor de las líneas de la cuadrícula
+           vlcex = 0.6,  # Tamaño del texto de las etiquetas de los municipios
+           cex.axis = 0.002)  # Tamaño de las etiquetas de los porcentajes en los ejes
+
+```
+
+Este gráfico de radar muestra la temperatura media promedio de cada municipio.
+
+### Día 3
+
+Los datos se tomaron de la publicación de la graficas de intención de votos en la revista Semana de Colombia, con relación de las elecciones presidenciales del año 2022, donde manipulaban los graficos para difundir informacion real pero sesgada para inducir al error.
+
+```{r}
+# Datos originales
+datos_candidatos <- data.frame(
+  Candidato = c("Petro", "Fajardo", "Maria Lucia", "Char", "Galan", "Fico"),
+  Porcentaje = c(23, 12, 9, 6, 6, 5)
+)
+
+# Gráfico ajustado (haciendo que los porcentajes más bajos se acerquen al más alto)
+# Escalamos los valores de forma que se vean más parejos
+max_porcentaje <- max(datos_candidatos$Porcentaje)  # Tomamos el valor máximo
+datos_ajustados <- datos_candidatos %>%
+  mutate(Porcentaje_Ajustado = ifelse(Porcentaje < max_porcentaje, 
+                                      Porcentaje + (max_porcentaje - Porcentaje) * 0.8, 
+                                      Porcentaje))  # Solo ajustamos los porcentajes menores
+
+
+# Gráfico ajustado
+ggplot(datos_ajustados, aes(x = reorder(Candidato, Porcentaje_Ajustado), y = Porcentaje_Ajustado, fill = Candidato)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Porcentaje, 1), "%")), vjust = -0.3) +
+  labs(title = "Porcentajes Ajustados de Candidatos") +
+  theme_minimal() +
+  theme(axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "none")
+
+# Gráfico con valores reales
+ggplot(datos_candidatos, aes(x = reorder(Candidato, Porcentaje), y = Porcentaje, fill = Candidato)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(Porcentaje, "%")), vjust = -0.3) +
+  labs(title = "Porcentajes Reales de Candidatos") +
+  scale_y_continuous(breaks = seq(0, 50, 10), limits = c(0, 50)) +
+  theme_minimal() +
+  theme(axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "none")
+
+```
+
+### Día 4
+
+```{r}
+#| fig-height: 4
+#| fig-width: 4
+
+
+datos_filtrados <- datos %>%
+  filter(Año == 2022, Mes == 7)
+
+# Crear los rangos de temperatura
+rangos_temperatura <- cut(datos_filtrados$TemperaturaMedia, 
+                          breaks = c(15, 20, 25, 30, 35, 40), 
+                          labels = c("15-20°C", "20-25°C", "25-30°C", "30-35°C", "35-40°C"))
+
+# Contar la cantidad de ocurrencias de cada rango de temperatura
+distribucion_temperaturas <- table(rangos_temperatura)
+
+# Crear el gráfico de Waffle usando la librería waffle
+waffle(distribucion_temperaturas, 
+       rows = 10, 
+       colors = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"),
+       title = "Distribución de Temperaturas para Julio 2022",
+       xlab = "Días") +
+  theme(
+    plot.title = element_text(size = 10, hjust = 0.5)  
+  )
+```
+
+Este gráfico mostrará la distribución de las temperaturas en julio de 2022, con cada "cuadro" representando un día del mes según los rangos de temperatura establecidos.
+
+### Día 5
+
+```{r}
+# Filtrar los datos entre 2018 y 2022
+datos_filtrados <- datos %>%
+  filter(Año >= 2018, Año <= 2022)
+
+# Calcular la temperatura promedio por año
+promedio_temperaturas <- datos_filtrados %>%
+  group_by(Año) %>%
+  summarise(TemperaturaPromedio = mean(TemperaturaMedia, na.rm = TRUE))
+
+# Calcular la temperatura promedio general para todo el período (2018-2022)
+temperatura_promedio_general <- mean(promedio_temperaturas$TemperaturaPromedio)
+
+# Calcular la diferencia de cada año con respecto a la temperatura promedio general
+promedio_temperaturas <- promedio_temperaturas %>%
+  mutate(Diferencia = TemperaturaPromedio - temperatura_promedio_general)
+
+# Crear el gráfico divergente
+ggplot(promedio_temperaturas, aes(x = Año, y = Diferencia, fill = Diferencia)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  labs(title = "Divergencia de Temperaturas (2018-2022)", 
+       x = "Año", 
+       y = "Diferencia con el Promedio General") +
+  theme_minimal() +
+  theme(axis.title = element_text(size = 12),
+        plot.title = element_text(size = 16, hjust = 0.5))
+```
+
+En el gráfico anterior, se puede ver de manera clara cómo varia la temperatura media en cada año con respecto al promedio general de todo el período (2018-2022).
+
+### Día 6
+
+Se utilizarán los datos de la OCDE, que permite medir la tasa de empleo de un grupo de personas, clasificadas por su lugar de nacimiento y nivel educativo.
+
+[OCDE](https://data-explorer.oecd.org/vis?df%5Bds%5D=dsDisseminateFinalDMZ&df%5Bid%5D=DSD_MIG%40DF_MIG_EMP_EDU&df%5Bag%5D=OECD.ELS.IMD&df%5Bvs%5D=1.0&dq=..A....ISCED11_3_4.&lom=LASTNPERIODS&lo=2&to%5BTIME_PERIOD%5D=false&ly%5Bcl%5D=TIME_PERIOD%2CBIRTH_PLACE&ly%5Brw%5D=REF_AREA&lb=bt&vw=tb)
+
+```{r}
+data_ocde <- read_csv("empleoOCDE.csv", show_col_types = FALSE)
+head(data_ocde)
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+paises_latinoamericanos_ocde <- c("MEX", "CHL", "COL")  
+
+datos_filtrados <- data_ocde %>%
+  filter(TIME_PERIOD == 2021, 
+         REF_AREA %in% paises_latinoamericanos_ocde, 
+         Sex %in% c("Male", "Female", "Total"))
+
+
+datos_agrupados <- datos_filtrados %>%
+  group_by(`Reference area`, Sex) %>%
+  summarise(Porcentaje_Empleo = mean(OBS_VALUE, na.rm = TRUE))
+
+
+ggplot(datos_agrupados, aes(x = `Reference area`, y = Porcentaje_Empleo, fill = Sex)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs(title = "Porcentaje de Empleo en Países Latinoamericanos OCDE (2021)", 
+       x = "País", 
+       y = "Porcentaje de Empleo") +
+  scale_fill_manual(values = c("pink", "blue",  "gray")) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  
+        plot.title = element_text(size = 12, hjust = 0.5), 
+        axis.title = element_text(size = 11))
+```
+
+Este gráfico comparativo permite ver de manera clara el porcentaje de empleo por sexo en cada uno de los países latinoamericanos presentes en la OCDE para el año 2021.
+
+### Día 7
+
+Mapa de calor desastres naturales
+
+```{r}
+data_desastres <- read_csv("EVENTOS_POR_DESASTRES_NATURALES_Y_ANTR_PICOS__Hist_rico__20241108.csv", show_col_types = FALSE)
+head(data_desastres)
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+data_coordenadas <- data_desastres %>%
+  distinct(MUNICIPIO) %>%
+  geocode(MUNICIPIO, method = "osm", lat = latitude, long = longitude)
+
+
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+data_desastres <- data_desastres %>%
+  left_join(data_coordenadas, by = "MUNICIPIO")
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+data_desastres <- data_desastres %>%
+  filter(!is.na(`AFECTACION HECTAREAS`)) %>%
+  mutate(`AFECTACION HECTAREAS` = as.numeric(`AFECTACION HECTAREAS`))
+
+
+data_mapa <- data_desastres %>%
+  filter(!is.na(MUNICIPIO)) %>%
+  group_by(MUNICIPIO, latitude, longitude) %>%
+  summarise(total_afectados = sum(`AFECTACION HECTAREAS`, na.rm = TRUE))
+
+
+data_mapa <- data_mapa %>%
+  filter(!is.na(latitude) & !is.na(longitude))
+
+# Crear el mapa de calor
+leaflet(data_mapa) %>%
+  addTiles() %>%
+  setView(lng = -74.2973, lat = 4.5709, zoom = 6) %>%
+  addHeatmap(
+    lng = ~longitude, lat = ~latitude,
+    intensity = ~total_afectados,
+    radius = 15,
+    blur = 20,
+    max = 1,
+    gradient = "YlOrRd"
+  ) %>%
+  addLegend("bottomright", pal = colorNumeric("YlOrRd", domain = data_mapa$total_afectados),
+            values = ~total_afectados,
+            title = "Afectados",
+            opacity = 1)
+
+```
+
+### Dia 8
+
+Mapa circular, con la temperatura de Cartagena de Indias desde el año 2020 a 2021
+
+```{r}
+datos_filtrados <- datos %>%
+  filter(Año %in% c(2020, 2021)) %>%
+  filter(Municipio %in% c("CARTAGENA DE INDIAS", "ARJONA", "EL GUAMO", "SANTA ROSA DEL SUR", "MAGANGUÉ"))
+
+# Calcular la temperatura promedio por municipio
+temperatura_promedio <- datos_filtrados %>%
+  group_by(Municipio) %>%
+  summarise(TemperaturaPromedio = mean(TemperaturaMedia))
+
+# Clasificar las temperaturas en tres categorías
+temperatura_promedio <- temperatura_promedio %>%
+  mutate(Rango = case_when(
+    TemperaturaPromedio >= 30 ~ "Alta (>= 30°C)",
+    TemperaturaPromedio >= 25 & TemperaturaPromedio < 30 ~ "Media (25-29°C)",
+    TRUE ~ "Baja (< 25°C)"
+  ))
+
+# Calcular el total de registros
+total_municipios <- nrow(temperatura_promedio)
+
+# Calcular los porcentajes de cada categoría
+temperatura_promedio <- temperatura_promedio %>%
+  group_by(Rango) %>%
+  summarise(Cantidad = n()) %>%
+  mutate(Porcentaje = (Cantidad / total_municipios) * 100)
+
+# Crear el gráfico circular con los porcentajes
+ggplot(temperatura_promedio, aes(x = "", y = Porcentaje, fill = Rango)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  labs(title = "Distribución de Temperaturas Promedio por Municipio (2020-2021)",
+       fill = "Rango de Temperatura") +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = paste0(round(Porcentaje, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 5)
+```
+
+### Día 9
+
+Grafico de barras para valores extremos
+
+```{r}
+datos_filtrados <- datos %>%
+  filter(Municipio %in% c("CARTAGENA DE INDIAS", "ARJONA", "EL GUAMO", "SANTA ROSA DEL SUR", "MAGANGUÉ"))
+
+# Calcular la temperatura promedio por municipio
+temperatura_promedio <- datos_filtrados %>%
+  group_by(Municipio) %>%
+  summarise(TemperaturaPromedio = mean(TemperaturaMedia))
+
+# Identificar los valores extremos
+max_temp <- max(temperatura_promedio$TemperaturaPromedio)
+min_temp <- min(temperatura_promedio$TemperaturaPromedio)
+
+# Crear gráfico de barras con los valores extremos resaltados
+ggplot(temperatura_promedio, aes(x = Municipio, y = TemperaturaPromedio, fill = TemperaturaPromedio)) +
+  geom_col(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", midpoint = mean(temperatura_promedio$TemperaturaPromedio)) +
+  geom_col(data = subset(temperatura_promedio, TemperaturaPromedio == max_temp), 
+           aes(x = Municipio, y = TemperaturaPromedio), fill = "red", color = "black") +
+  geom_col(data = subset(temperatura_promedio, TemperaturaPromedio == min_temp), 
+           aes(x = Municipio, y = TemperaturaPromedio), fill = "blue", color = "black") +
+  labs(title = "Temperaturas Promedio por Municipio",
+       x = "Municipio", y = "Temperatura Promedio (°C)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Día 10
+
+Histograma de exportaciones no tradicionales
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+data <- read_csv("Exportaciones_agr_colas_no_tradicionales_y_tradicionales_20241011.csv", show_col_types = FALSE)
+data_2023 <- data %>% 
+      filter(`Exportaciones en valor (Miles USD FOB)` > 0)
+
+
+# Convertir las columnas relevantes a numérico, asegurando que los valores no numéricos sean manejados
+data_2023 <- data_2023 %>%
+  mutate(`Exportaciones en valor (Miles USD FOB)` = as.numeric(gsub(",", "", `Exportaciones en valor (Miles USD FOB)`)),  # Eliminar comas y convertir a numérico
+         `Exportaciones en volumen (Toneladas)` = as.numeric(gsub(",", "", `Exportaciones en volumen (Toneladas)`)))      # Hacer lo mismo para el volumen
+
+ggplot(data_2023, aes(x = `Exportaciones en valor (Miles USD FOB)`)) +
+  geom_histogram(binwidth = 5000, fill = "steelblue", color = "black", alpha = 0.7) +
+  labs(title = "Distribución de Exportaciones en Valor (Miles USD FOB)",
+       x = "Exportaciones en valor (Miles USD)",
+       y = "Frecuencia") +
+   ylim(0, 3000) +
+    theme_minimal()
+```
+
+### Día 11
+
+Diseño simple de un gráfico adaptado para móviles.
+
+```{r}
+ggplot(data_2023, aes(x = `Exportaciones en valor (Miles USD FOB)`)) +
+  geom_density(fill = "steelblue", color = "black", alpha = 0.7) +
+  labs(title = "Distribución de Exportaciones en Valor (Miles USD FOB)",
+       x = "Exportaciones en Valor (Miles USD)",
+       y = "Densidad") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 8),  # Reducir tamaño de las etiquetas del eje X
+        axis.text.y = element_text(size = 8),  # Reducir tamaño de las etiquetas del eje Y
+        plot.title = element_text(size = 10))  # Reducir tamaño del título
+```
+
+### Día 12
+
+Grafico del dia
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+parquet_dir <- "temperatura_colombia.parquet/"
+
+# 2. Limpiar y preparar los datos
+data <- open_dataset(parquet_dir) %>%
+  filter(Departamento %in% c("SANTANDER")) %>%
+  collect()
+
+
+# Obtener los nombres únicos de los municipios
+municipios <- unique(data$Municipio)
+# Crear un data frame vacío para almacenar los datos filtrados
+data_clean <- data.frame()
+
+
+# Crear un gráfico de caja (boxplot) para cada municipio
+for (municipio in municipios) {
+  # Filtrar los datos para el municipio actual
+  data_municipio <- data %>%
+    filter(Municipio == municipio)
+  
+  # Calcular el primer y tercer cuartil (Q1 y Q3)
+  Q1 <- quantile(data_municipio$ValorObservado, 0.25, na.rm = TRUE)
+  Q3 <- quantile(data_municipio$ValorObservado, 0.75, na.rm = TRUE)
+  
+  # Calcular el IQR
+  IQR <- Q3 - Q1
+  
+  # Definir los límites inferior y superior
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  
+  # Filtrar los datos, eliminando los outliers
+  data_municipio_clean <- data_municipio %>%
+    filter(ValorObservado >= lower_bound & ValorObservado <= upper_bound)
+  
+  # Agregar los datos filtrados a la lista
+  data_clean <- rbind(data_clean, data_municipio_clean)
+}
+
+
+
+# 5. Agrupar por Municipio y Departamento para calcular las temperaturas máximas y mínimas
+data_summary <- data_clean %>%
+  group_by(Departamento, Municipio) %>%
+  summarise(TempMax = max(ValorObservado, na.rm = TRUE),
+            TempMin = min(ValorObservado, na.rm = TRUE)) %>%
+  ungroup()
+
+# 6. Ordenar los datos por Departamento y Municipio
+data_summary <- data_summary %>%
+  arrange(Departamento, Municipio)
+
+# 7. Crear una columna para usar como separador visual por departamento
+data_summary$DepartamentoSep <- cumsum(!duplicated(data_summary$Departamento))
+
+# 8. Crear el gráfico
+ggplot(data_summary, aes(x = Municipio, group = DepartamentoSep)) +
+  # Líneas para las temperaturas máxima y mínima
+  geom_line(aes(y = TempMax, color = "Max Temp"), size = 1) +
+  geom_line(aes(y = TempMin, color = "Min Temp"), size = 1) +
+  # Puntos en las temperaturas máxima y mínima
+  geom_point(aes(y = TempMax, color = "Max Temp"), size = 3) +
+  geom_point(aes(y = TempMin, color = "Min Temp"), size = 3) +
+  # Añadir etiquetas de temperatura
+  geom_text(aes(y = TempMax, label = round(TempMax, 1)), vjust = -1) +
+  geom_text(aes(y = TempMin, label = round(TempMin, 1)), vjust = 1.5) +
+  # Añadir líneas punteadas entre los departamentos
+  geom_vline(aes(xintercept = as.numeric(factor(Municipio)) - 0.5), linetype = "dotted", color = "grey") +
+  # Etiquetas de los ejes y título
+  labs(x = "Municipio", y = "Temperatura (°C)", title = "Temperaturas Máximas y Mínimas por Municipio (Sep 2024)", 
+       subtitle = "Agrupado por Departamento") +
+  # Separar por colores las temperaturas
+  scale_color_manual(values = c("Max Temp" = "blue", "Min Temp" = "green")) +
+  # Tema del gráfico
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # Agrupar visualmente por Departamento
+  facet_grid(. ~ Departamento, scales = "free_x", space = "free_x")
+```
+
+### Día 13
+
+Diagrama de árbol que muestre relaciones de parentesco o conexiones
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+family_tree <- Node$new("Abuelo")
+padre <- family_tree$AddChild("Padre")
+padre$AddChild("Yo")
+padre$AddChild("Hermano")
+tio <- family_tree$AddChild("Tío")
+tio$AddChild("Primo")
+
+# Convertir el árbol a un gráfico compatible con DiagrammeR
+family_tree_graph <- ToDiagrammeRGraph(family_tree)
+
+# Graficar el árbol
+render_graph(family_tree_graph)
+```
+
+### Día 14
+
+Línea de tiempo de las exportaciones
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+
+meses <- c("Enero" = 1, "Febrero" = 2, "Marzo" = 3, "Abril" = 4, "Mayo" = 5, "Junio" = 6,
+           "Julio" = 7, "Agosto" = 8, "Septiembre" = 9, "Octubre" = 10, "Noviembre" = 11, "Diciembre" = 12)
+
+data_2023 <- data_2023 %>%
+  mutate(Mes_num = meses[Mes]) %>%
+  filter(!is.na(`Exportaciones en valor (Miles USD FOB)`))  # Filtrar valores faltantes
+
+# Crear una nueva columna para el trimestre
+data_2023 <- data_2023 %>%
+  mutate(Trimestre = case_when(
+    Mes_num %in% 1:3 ~ "Q1",
+    Mes_num %in% 4:6 ~ "Q2",
+    Mes_num %in% 7:9 ~ "Q3",
+    Mes_num %in% 10:12 ~ "Q4"
+  ))
+
+# Crear columna para formato Año-Trimestre
+data_2023 <- data_2023 %>%
+  mutate(Año_Trimestre = paste(Año, Trimestre, sep = "-"))
+
+# Calcular el promedio de exportaciones por año y trimestre
+data_trimestral <- data_2023 %>%
+  group_by(Año_Trimestre) %>%
+  summarise(Exportaciones_promedio = mean(`Exportaciones en valor (Miles USD FOB)`))
+
+# Crear la línea de tiempo
+ggplot(data_trimestral, aes(x = Año_Trimestre, y = Exportaciones_promedio, group = 1)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "red") +
+  labs(title = "Línea de Tiempo de Exportaciones Promedio por Trimestres",
+       x = "Año-Trimestre", y = "Valor de Exportaciones (Miles USD)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Día 15
+
+Mapa de calor de origen de exportaciones
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+data_coordenadas_exp <- data_2023 %>%
+  distinct(Departamento) %>%
+  geocode(Departamento, method = "osm", lat = latitude, long = longitude)
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+total_exports <- sum(data_2023$`Exportaciones en valor (Miles USD FOB)`)
+data_exp <- data_2023 %>%
+  group_by(Departamento) %>%
+  summarise(Total_Exportaciones = sum(`Exportaciones en valor (Miles USD FOB)`)) %>%
+  mutate(Porcentaje_Aporte = (Total_Exportaciones / total_exports) * 100)
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+aporte_exp <- merge(data_exp, data_coordenadas_exp, by = "Departamento", all.x = TRUE)
+
+# Crear el mapa de calor
+leaflet(aporte_exp) %>%
+  addTiles() %>%
+  setView(lng = -74.2973, lat = 4.5709, zoom = 6) %>%
+  addHeatmap(
+    lng = ~longitude, lat = ~latitude,
+    intensity = ~Total_Exportaciones,
+    radius = 15,
+    blur = 20,
+    max = 1,
+    gradient = "YlOrRd"
+  ) %>%
+  addLegend("bottomright", pal = colorNumeric("YlOrRd", domain = data_mapa$total_afectados),
+            values = ~Total_Exportaciones,
+            title = "Exportaciones",
+            opacity = 1)
+```
+
+### Día 16
+
+Grafico de dispersión
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+#Lectura de datos de tempertura 
+parquet_dir <- "temperatura_colombia.parquet/"
+
+# 2. Limpiar y preparar los datos
+temperatura <- open_dataset(parquet_dir) %>%
+  collect()
+
+
+temperatura_data_clean <- temperatura %>%
+  filter(!is.na(ValorObservado))
+
+temperature_avg <- temperatura_data_clean %>%
+  group_by(Año, Mes, Departamento) %>%
+  summarise(TemperaturaPromedio = mean(ValorObservado, na.rm = TRUE)) %>%
+  ungroup()
+
+
+temperature_avg$Mes <- factor(temperature_avg$Mes, levels = 1:12, labels = c("Ene", "Feb", "Mar", "Abr", "May", "Jun","Jul", "Ago", "Sep", "Oct", "Nov", "Dic"))
+
+# Plot
+ggplot(temperature_avg, aes(x = Mes, y = TemperaturaPromedio, color = Departamento)) +
+  geom_point(alpha = 0.6, size = 3) +
+  labs(title = "Diagrama de Dispersión por Departamento",
+       x = "Mes", y = "Temperatura Promedio (°C)",
+       color = "Departamento") +
+  theme_minimal()
+```
+
+### Día 17
+
+Diagrama de redes
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+
+data_exp <- read.csv("Exportaciones_agr_colas_no_tradicionales_y_tradicionales_20241011.csv")
+
+# Filtrar las exportaciones de Antioquia
+antioquia_exports <- data_exp[data_exp$Departamento == "Antioquia", ]
+
+
+antioquia_exports <- antioquia_exports %>% filter(!is.na(`Exportaciones.en.valor..Miles.USD.FOB.`))
+
+
+graph_data <- antioquia_exports %>%
+  group_by(Departamento, Pais) %>%
+  summarise(weight = sum(`Exportaciones.en.valor..Miles.USD.FOB.`)) %>%
+  filter(weight > 0)
+
+
+graph <- graph_from_data_frame(graph_data, directed = TRUE)
+
+# Paso 3: Graficar con ggraph
+library(ggraph)
+ggraph(graph, layout = 'fr') + 
+  geom_edge_link(aes(edge_width = weight, edge_alpha = 0.7), color = "blue") +
+  geom_node_point(color = "red", size = 5) +
+  geom_node_text(aes(label = name), color = "black", size = 3, repel = TRUE) +
+  labs(title = "Conexiones de Exportaciones de Antioquia por País Destino") +
+  theme_void()
+```
+
+### Día 18
+
+Se mostraran los datos de inflación de la sub región Este de Asía, el set de datos se obtuvo en
+
+[Asian Development Bank (ADO)](https://data.adb.org/media/13241/download)
+
+```{r}
+data_inflacion <- read.csv("ADOSep2024_A2-Inflation.csv")
+
+data_inflacion_filtered <- data_inflacion %>%
+  filter(Subregion == "East Asia" & 
+         Year %in% 2021:2024 & 
+         !is.na(Country.Code) & 
+         Country.Code != "")
+
+
+ggplot(data_inflacion_filtered, aes(x = Year, y = Inflation, color = Country.Code, group = Country.Code)) +
+  geom_line(size = 1) +      # Línea para la inflación por país
+  geom_point(size = 3) +     # Puntos para resaltar los valores
+  labs(title = "Comportamiento Anual de la Inflación en East Asia (2021-2024)",
+       x = "Año",
+       y = "Inflación (%)") +
+  scale_color_viridis_d() +  # Asignar colores diferentes a cada país
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotar etiquetas del eje X
+```
+
+### Día 19
+
+Grafico de extinsion de los dinoraurios
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+dinosaurios <- read.csv("dinosaurios.csv")
+
+dinosaurios <- dinosaurios %>%
+  mutate(
+    # Capturar el primer y segundo año del periodo correctamente
+    start_year = as.numeric(str_extract(period, "\\d+(?=-)")),  # Año de inicio del periodo
+    end_year = as.numeric(str_extract(period, "\\d+(?= million)")),  # Año de fin del periodo
+    # Calcular el año de extinción promedio
+    extinction_year = ifelse(!is.na(start_year) & !is.na(end_year), 
+                             (start_year + end_year) / 2, NA)  # Promedio de los años de extinción
+  )
+
+extinciones_por_ano <- dinosaurios %>%
+  group_by(extinction_year) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Graficar la evolución de la extinción de dinosaurios
+ggplot(extinciones_por_ano, aes(x = extinction_year, y = count)) +
+  geom_line(group = 1, color = "blue", size = 1) +  # Línea que conecta los puntos
+  geom_point(color = "red", size = 3) +  # Puntos en los años de extinción
+  labs(title = "Evolución de la Extinción de Dinosaurios",
+       x = "Año de Extinción (Millones de Años)",
+       y = "Cantidad de Dinosaurios Extintos") +
+      ylim(0,20) +
+  theme_minimal()
+```
+
+### Día 20
+
+Grafico de correlación
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+dinosaurios_filtered <- dinosaurios
+dinosaurios_filtered$length <- as.numeric(gsub("m", "", dinosaurios_filtered$length))
+
+
+if (sum(!is.na(dinosaurios_filtered$length)) > 0) {
+  max_length <- 40  # Limitar a un máximo de 40 metros
+  
+
+  ggplot(dinosaurios_filtered, aes(x = extinction_year, y = length)) +
+    geom_point(color = "#66C2A5", size = 4, alpha = 0.7) +  # Puntos herbívoros en verde suave
+    geom_smooth(method = "lm", color = "#FC8D62", size = 1.2, se = FALSE) +  # Línea de tendencia en naranja
+    labs(title = "Correlación entre Año de Extinción y Longitud de Dinosaurios",
+         subtitle = "Evolución de dinosaurios herbívoros entre 100 y 150 millones de años",
+         x = "Año de Extinción (Millones de Años)",
+         y = "Longitud del Dinosaurio (metros)") +
+    scale_y_continuous(
+      breaks = seq(0, max_length, by = 5),  
+      limits = c(0, max_length)  
+    ) +
+    theme_minimal(base_size = 14) +  
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 12),  
+      plot.subtitle = element_text(hjust = 0.5, size = 10),  # Subtítulo centrado
+      axis.title = element_text(face = "bold", size = 10),  # Títulos de los ejes en negrita
+      axis.text = element_text(size = 10),  # Tamaño de los números de los ejes
+      panel.grid = element_line(color = "grey80", linetype = "dashed")  # Líneas de cuadrícula suaves
+    )
+} else {
+  message("No hay datos válidos para los dinosaurios herbívoros en el rango de extinción especificado.")
+}
+```
+
+### Día 21
+
+Energias renovables
+
+```{r}
+proyectos <- read.csv("EnergiRenovable.csv")
+
+# Asegurarse de que la columna 'Fecha estimada FPO' esté en formato de fecha
+proyectos$Fecha_estimado_FPO <- as.Date(substr(proyectos$Fecha.estimada.FPO, 1, 10))
+
+
+fecha_inicio <- as.Date("2018-01-01")
+fecha_limite <- as.Date("2028-12-31")
+
+# Filtrar proyectos con fecha de FPO válida y que estén dentro del rango de fechas especificado
+proyectos_filtrados <- proyectos %>%
+  filter(!is.na(Fecha_estimado_FPO) & Fecha_estimado_FPO >= fecha_inicio & Fecha_estimado_FPO <= fecha_limite)
+
+# Crear gráfico
+ggplot(proyectos_filtrados, aes(x = Fecha_estimado_FPO, y = Capacidad, color = Tipo)) +
+  geom_point(aes(size = Capacidad), alpha = 0.8) +  # Puntos por cada proyecto, tamaño por capacidad
+  geom_line(aes(group = 1), color = "grey70", linetype = "dashed") +  # Línea de tiempo
+  scale_x_date(
+    date_labels = "%Y",           # Solo mostrar el año
+    date_breaks = "5 years",      # Intervalos de 5 años
+    limits = c(fecha_inicio, fecha_limite),  # Rango de fechas entre 2018 y 2043
+    expand = c(0, 0)              # Eliminar el espacio extra antes del primer y después del último año
+  ) +
+  labs(
+    title = "Línea de Tiempo del Uso de Energías Renovables en Colombia",
+    subtitle = "Proyectos de Energías Renovables desde 2018 hasta 2043",
+    x = "Fecha de Puesta en Operación (FPO)",
+    y = "Capacidad Instalada (MW)",
+    color = "Tipo de Energía",
+    size = "Capacidad"
+  ) +
+  theme_minimal() +  # Tema minimalista
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10)
+  ) +
+  scale_color_manual(values = c("Solar" = "#FFB31C", "Eólico" = "#00B0B9"))
+
+
+```
+
+### Día 22
+
+Movilidad
+
+```{r}
+# Ejemplo de datos de movilidad (puedes adaptar esto a tus datos reales)
+movilidad <- data.frame(
+  Fecha = seq(as.Date("2020-01-01"), by = "month", length.out = 25),  # 25 meses
+  Vehiculos = c(5000, 5200, 5500, 5700, 6000, 6300, 6600, 6900, 7200, 7500, 
+                7800, 8100, 8400, 8600, 8800, 9100, 9300, 9500, 9700, 10000, 
+                10300, 10600, 10900, 11200, 11500),  # Número de vehículos
+  Pasajeros = c(4500, 4700, 4950, 5100, 5300, 5600, 5900, 6100, 6400, 6700,
+                6900, 7200, 7400, 7600, 7800, 8000, 8200, 8400, 8600, 8800,
+                9000, 9200, 9400, 9600, 9800)  # Número de pasajeros
+)
+
+# Crear gráfico de líneas para mostrar las tendencias de vehículos y pasajeros
+ggplot(movilidad, aes(x = Fecha)) +
+  geom_line(aes(y = Vehiculos, color = "Vehículos"), size = 1.2) +  # Línea de vehículos
+  geom_line(aes(y = Pasajeros, color = "Pasajeros"), size = 1.2) +  # Línea de pasajeros
+  labs(
+    title = "Tendencia de Movilidad a lo Largo del Tiempo",
+    subtitle = "Número de vehículos y pasajeros en el transporte durante 2 años",
+    x = "Fecha",
+    y = "Cantidad",
+    color = "Indicadores"
+  ) +
+  scale_color_manual(values = c("Vehículos" = "#1f77b4", "Pasajeros" = "#ff7f0e")) +  # Colores para las líneas
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+```
+
+### Día 23
+
+Grafico de cuadriculas
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+proyecto_localizados <- proyectos %>%
+  distinct(Departamento) %>%
+  geocode(Departamento, method = "osm", lat = latitude, long = longitude)
+
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+proyectos_coord <- proyectos %>%
+  left_join(proyecto_localizados, by = "Departamento")
+
+
+
+proyectos_sf <- st_as_sf(proyectos_coord, coords = c("longitude", "latitude"), crs = 4326)
+
+proyectos_sf$Inversion_billones <- proyectos_sf$Inversión.estimada..COP. / 1e12
+
+# Crear el gráfico
+ggplot(proyectos_sf) +
+  geom_sf(aes(fill = Inversion_billones), color = "black", size = 4) +  # Puntos más grandes y coloreados por inversión
+  scale_fill_viridis_c(option = "C", begin = 0, end = 1) +  # Escala de colores ajustada
+  labs(
+    title = "Mapa de Cuadrículas por Inversión Estimada en Energías Renovables",
+    subtitle = "Resaltando áreas por inversión estimada de proyectos de energía renovable",
+    fill = "Inversión Estimada (Billones COP)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 9),
+    axis.title = element_text(size = 9, face = "bold"),
+    axis.text = element_text(size = 9)
+  ) +
+  scale_fill_viridis_c(labels = label_comma(scale = 1, suffix = "B"))
+  
+```
+
+### Día 24
+
+Africa
+
+```{r}
+africa <- read.csv("womenManagerPositionAK.csv", quote = "\"")
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+africa_clean <- africa %>%
+  filter(!is.na(obs_value))
+
+# Filtrar por los años 2020, 2021, 2022, 2023
+africa_filtered <- africa_clean %>%
+  filter(time %in% c(2020, 2021, 2022, 2023))
+
+# Verificar la cantidad de registros por país y año
+country_year_count <- africa_filtered %>%
+  group_by(ref_area.label, time) %>%
+  summarise(count = n()) %>%
+  spread(key = time, value = count, fill = 0)
+
+# Ver los países que tienen datos para todos los años de interés
+countries_with_all_years <- country_year_count %>%
+  filter(`2020` > 0 & `2021` > 0 & `2022` > 0 & `2023` > 0)
+
+africa_clean <- africa_filtered %>%
+  filter(ref_area.label %in% countries_with_all_years$ref_area.label)
+
+ggplot(africa_clean, aes(x = time, y = obs_value, color = ref_area.label, group = ref_area.label)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Proporción de Mujeres en Cargos Directivos en África (2020-2023)",
+       x = "Año", y = "Proporción de Mujeres en Cargos Directivos (%)",
+       color = "País") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+### Día 25
+
+```{r}
+
+datos <- temperatura_data_clean
+
+datos$FechaObservacion <- as.POSIXct(datos$FechaObservacion, format = "%Y-%m-%d %H:%M:%S")
+
+datos_agg <- datos %>%
+  group_by(FechaObservacion) %>%
+  summarize(
+    media = mean(ValorObservado, na.rm = TRUE),
+    sd = sd(ValorObservado, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Calcular intervalo de confianza (suponiendo distribución normal)
+# Usaremos un intervalo de confianza del 95%
+datos_agg <- datos_agg %>%
+  mutate(
+    ci_lower = media - 1.96 * (sd / sqrt(n())),
+    ci_upper = media + 1.96 * (sd / sqrt(n()))
+  )
+
+
+ggplot(datos_agg, aes(x = FechaObservacion)) +
+  geom_line(aes(y = media), color = "blue", size = 1) +  # Línea de tendencia
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), fill = "blue", alpha = 0.3) +  # Banda de incertidumbre
+  labs(
+    title = "Incertidumbre en las Proyecciones de Cambio Climático",
+    subtitle = "Intervalo de confianza (95%) para los valores observados",
+    x = "Fecha de Observación",
+    y = "Valor Observado"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12)
+  )
+```
+
+### Día 26
+
+IA
+
+```{r}
+dengue_features <- read.csv("dengue_features_train.csv")
+
+
+dengue_features$rolling_precip_3w <- zoo::rollapply(dengue_features$station_precip_mm, width = 3, FUN = mean, fill = NA, align = "right", partial = TRUE)
+dengue_features$rolling_temp_avg_3w <- zoo::rollapply(dengue_features$station_avg_temp_c, width = 3, FUN = mean, fill = NA, align = "right", partial = TRUE)
+
+# Rango de temperatura (máxima - mínima)
+dengue_features$temp_range <- dengue_features$station_max_temp_c - dengue_features$station_min_temp_c
+
+# Diferencia semanal de precipitación
+dengue_features$precip_diff <- c(0, diff(dengue_features$station_precip_mm))
+
+# Media móvil para NDVI
+ndvi_columns <- c('ndvi_ne', 'ndvi_nw', 'ndvi_se', 'ndvi_sw')
+for (col in ndvi_columns) {
+  dengue_features[[paste0("rolling_", col, "_3w")]] <- zoo::rollapply(dengue_features[[col]], width = 3, FUN = mean, fill = NA, align = "right", partial = TRUE)
+}
+
+# Desviación estándar móvil de la temperatura promedio en 3 semanas
+dengue_features$temp_std_3w <- zoo::rollapply(dengue_features$station_avg_temp_c, width = 3, FUN = sd, fill = NA, align = "right", partial = TRUE)
+
+# Función para detección y capping de outliers
+detect_and_cap_outliers_v2 <- function(df, column) {
+  Q1 <- quantile(df[[column]], 0.25, na.rm = TRUE)
+  Q3 <- quantile(df[[column]], 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  # Cap valores
+  df[[column]] <- pmin(pmax(df[[column]], lower_bound), upper_bound)
+  return(df)
+}
+
+# Aplicar capping a todas las columnas numéricas relacionadas con temperatura, precipitación y NDVI
+columns_to_cap <- c('station_max_temp_c', 'station_min_temp_c', 'station_precip_mm',
+                    'reanalysis_air_temp_k', 'reanalysis_avg_temp_k', 'reanalysis_max_air_temp_k',
+                    'reanalysis_min_air_temp_k', 'reanalysis_precip_amt_kg_per_m2', 'reanalysis_tdtr_k',
+                    'rolling_temp_avg_3w', 'temp_range', 'precip_diff',
+                    'temp_std_3w', ndvi_columns)
+
+
+# Aplicar la función detect_and_cap_outliers_v2 a cada columna de interés
+for (column in columns_to_cap) {
+  dengue_features <- detect_and_cap_outliers_v2(dengue_features, column)
+}
+```
+
+```{r}
+temp_columns <- c('station_max_temp_c', 'station_min_temp_c', 'station_avg_temp_c', 'station_diur_temp_rng_c',
+                  'reanalysis_air_temp_k', 'reanalysis_avg_temp_k', 'reanalysis_dew_point_temp_k',
+                  'reanalysis_max_air_temp_k', 'reanalysis_min_air_temp_k', 'reanalysis_tdtr_k')
+
+for (col in temp_columns) {
+  dengue_features[[col]] <- zoo::na.approx(dengue_features[[col]], na.rm = FALSE)
+}
+
+# Forward fill para columnas de precipitación, donde los valores pueden ser abruptos
+precip_columns <- c('station_precip_mm', 'precipitation_amt_mm', 
+                    'reanalysis_precip_amt_kg_per_m2', 'reanalysis_sat_precip_amt_mm')
+
+for (col in precip_columns) {
+  dengue_features[[col]] <- zoo::na.locf(dengue_features[[col]], na.rm = FALSE)
+}
+
+# Imputación de la mediana para características derivadas y columnas NDVI
+derived_columns <- c('rolling_precip_3w', 'rolling_temp_avg_3w', 'temp_range', 'precip_diff', 
+                     'ndvi_ne', 'ndvi_nw', 'ndvi_se', 'ndvi_sw', 
+                     'rolling_ndvi_ne_3w', 'rolling_ndvi_nw_3w', 'rolling_ndvi_se_3w', 'rolling_ndvi_sw_3w', 'temp_std_3w')
+
+for (col in derived_columns) {
+  dengue_features[[col]] <- ifelse(is.na(dengue_features[[col]]), 
+                                   median(dengue_features[[col]], na.rm = TRUE), 
+                                   dengue_features[[col]])
+}
+
+# Interpolación lineal para columnas de humedad relativa y específica
+humidity_columns <- c('reanalysis_relative_humidity_percent', 'reanalysis_specific_humidity_g_per_kg')
+
+for (col in humidity_columns) {
+  dengue_features[[col]] <- zoo::na.approx(dengue_features[[col]], na.rm = FALSE)
+}
+
+# Verificar si quedan valores faltantes
+missing_values_post_imputation <- colSums(is.na(dengue_features))
+
+```
+
+```{r}
+if(!require("caret")) install.packages("caret")
+library(caret)
+
+
+# Eliminar columnas duplicadas en df_clustering
+df_clustering <- dengue_features %>% select(-which(duplicated(names(.))))
+
+# Convertir 'city' en factor (Verifica que la columna "city" exista)
+if("city" %in% colnames(df_clustering)) {
+  df_clustering <- df_clustering %>% mutate(city = as.factor(city))
+} else {
+  warning("La columna 'city' no existe en el dataset.")
+}
+
+# Crear modelo de variables dummy para 'city'
+if("city" %in% colnames(df_clustering)) {
+  dummy_model <- dummyVars(~ city, data = df_clustering)
+
+  # Generar las variables dummy y combinarlas con el dataset original
+  city_dummies <- predict(dummy_model, newdata = df_clustering)
+  df_clustering <- cbind(df_clustering, as.data.frame(city_dummies))
+} else {
+  warning("La columna 'city' no existe, no se generaron variables dummy.")
+}
+
+# Verifica si las columnas de temperatura y NDVI existen antes de seleccionarlas
+columns_temperatura_ndvi <- c("station_max_temp_c", "station_min_temp_c", "ndvi_ne", "ndvi_nw", "ndvi_se", "ndvi_sw")
+if(all(columns_temperatura_ndvi %in% colnames(df_clustering))) {
+  variables_temperatura_ndvi <- df_clustering %>%
+    select(all_of(columns_temperatura_ndvi))
+} else {
+  warning("Algunas columnas de temperatura y NDVI no existen en el dataset.")
+}
+
+# Si se han seleccionado correctamente las variables de temperatura y NDVI, aplicar PCA
+if(exists("variables_temperatura_ndvi")) {
+  pca <- prcomp(variables_temperatura_ndvi, center = TRUE, scale. = TRUE)
+  df_clustering$pca_temp_ndvi_1 <- pca$x[, 1]
+  df_clustering$pca_temp_ndvi_2 <- pca$x[, 2]
+} 
+
+# Verifica que las columnas que deseas eliminar existan en el dataframe antes de proceder
+columns_to_remove <- c("station_max_temp_c", "station_min_temp_c", "ndvi_ne", "ndvi_nw", 
+                       "ndvi_se", "ndvi_sw", "rolling_ndvi_ne_3w", "rolling_ndvi_nw_3w", 
+                       "rolling_ndvi_se_3w", "rolling_ndvi_sw_3w")
+
+# Verifica que las columnas existen en el dataframe antes de eliminarlas
+existing_columns <- columns_to_remove[columns_to_remove %in% colnames(df_clustering)]
+
+if(length(existing_columns) > 0) {
+  df_clustering <- df_clustering %>%
+    select(-all_of(existing_columns))
+} 
+
+```
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+if (!require("cluster")) install.packages("cluster")
+
+# Eliminar columnas duplicadas en df_clustering (usando el nombre de las columnas)
+df_clustering <- df_clustering %>% select(-which(duplicated(names(.))))
+
+# Seleccionar solo las columnas numéricas en el dataset de clustering (evitar duplicados)
+numerical_cols <- df_clustering %>% select(where(is.numeric))
+
+# Eliminar columnas que tienen sólo un valor único
+numerical_cols <- numerical_cols %>% select(where(~ n_distinct(.) > 1))
+
+# Escalar los datos para clustering
+data_for_clustering <- numerical_cols
+data_scaled <- scale(data_for_clustering)
+
+# Establecer número de clusters
+nClusters <- 3
+
+# Función para reducir la dimensionalidad con PCA y visualizar el clustering
+plot_clusters <- function(data, labels, title) {
+  # Reducir a 2 dimensiones con PCA
+  pca <- prcomp(data, center = TRUE, scale. = TRUE)
+  pca_result <- pca$x[, 1:2]
+  
+  # Graficar los clusters
+  plot(pca_result, col = labels, pch = 19, main = title, xlab = "PCA 1", ylab = "PCA 2")
+  legend("topright", legend = unique(labels), col = unique(labels), pch = 19)
+}
+
+# Función para calcular clusters y métricas
+evaluate_clustering <- function(model, data, method_name) {
+  clusters <- model$cluster
+  silhouette_score <- mean(silhouette(clusters, dist(data))[, 3])
+  cat(paste(method_name, "- Silhouette Score:", round(silhouette_score, 4), "\n"))
+  return(clusters)
+}
+
+# Clustering con KMeans
+set.seed(123) # Fijar semilla para reproducibilidad
+kmeans_model <- kmeans(data_scaled, centers = nClusters)
+kmeans_clusters <- evaluate_clustering(kmeans_model, data_scaled, "KMeans")
+plot_clusters(data_scaled, kmeans_clusters, "KMeans Clustering")
+
+
+```
+
+Algoritmo de clustering, desarrollado siguiendo los lineamientos del reto DrivenData, ejercicio desarrollado en clase de Machine Learning de este mismo master.
+
+### Día 27
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+classify_vegetation <- function(row) {
+  avg_ndvi <- mean(c(row$ndvi_ne, row$ndvi_nw, row$ndvi_se, row$ndvi_sw), na.rm = TRUE)
+  if (avg_ndvi >= 0.6) {
+    return("Buena")
+  } else if (avg_ndvi >= 0.3) {
+    return("Regular")
+  } else if (avg_ndvi >= 0) {
+    return("Mala")
+  } else {
+    return("Ausencia")
+  }
+}
+
+# Aplicar la función para crear la columna 'estado_vegetacion'
+dengue_features <- dengue_features %>%
+  rowwise() %>%
+  mutate(estado_vegetacion = classify_vegetation(cur_data())) %>%
+  ungroup()
+
+# Contar la cantidad de registros por categoría de vegetación
+estado_count <- dengue_features %>%
+  group_by(estado_vegetacion) %>%
+  summarise(count = n())
+
+# Crear el gráfico de barras
+ggplot(estado_count, aes(x = estado_vegetacion, y = count, fill = estado_vegetacion)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribución del Estado de la Vegetación",
+       x = "Estado de la Vegetación", y = "Cantidad de Registros", fill = "Estado") +
+  theme_minimal()
+```
+
+El gráfico de barras permite visualizar la distribución de los estados de vegetación en el conjunto de datos de dengue. Este gráfico ayuda a comparar cuántos registros corresponden a cada clasificación de vegetación en el dataset.
+
+### Día 28
+
+Tendencia
+
+```{r}
+proyectos_filtrados <- proyectos_filtrados %>%
+  arrange(Fecha_estimado_FPO) %>%
+  group_by(Tipo) %>%
+  mutate(
+    capacidad_media = rollmean(Capacidad, 12, fill = NA, align = "right"),  # Media móvil de 12 meses
+    capacidad_sd = rollapply(Capacidad, 12, sd, fill = NA, align = "right")  # Desviación estándar
+  ) %>%
+  ungroup()
+
+# Crear el gráfico con incertidumbre en las proyecciones
+ggplot(proyectos_filtrados, aes(x = Fecha_estimado_FPO, y = capacidad_media, color = Tipo)) +
+  geom_line(size = 1) +  # Línea de tendencia
+  geom_ribbon(aes(ymin = capacidad_media - capacidad_sd, ymax = capacidad_media + capacidad_sd, fill = Tipo), 
+              alpha = 0.2) +  # Área sombreada para incertidumbre
+  labs(
+    title = "Tendencia de Capacidad Instalada de Energías Renovables",
+    subtitle = "Proyección con incertidumbre en las estimaciones de capacidad instalada",
+    x = "Fecha de Puesta en Operación (FPO)",
+    y = "Capacidad Instalada (MW)",
+    fill = "Tipo de Energía",
+    color = "Tipo de Energía"
+  ) +
+  theme_minimal() +  # Tema minimalista
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 11),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10)
+  ) +
+  scale_color_manual(values = c("Solar" = "#FFB31C", "Eólico" = "#00B0B9")) +  # Colores para los tipos de energía
+  scale_fill_manual(values = c("Solar" = "#FFB31C", "Eólico" = "#00B0B9")) 
+```
+
+### Día 29
+
+Grafico de contrastes, aprovecharemos la información utilizada para el desempleo en la OCDE para generar este grafico
+
+```         
+```
+
+```{r}
+datos_agrupados <- datos_agrupados %>%
+  mutate(label_color = ifelse(Sex == "Total", "white", "black"))
+
+# Gráfico de barras apiladas para empleo por género con porcentajes en cada barra
+ggplot(datos_agrupados, aes(x = `Reference area`, y = Porcentaje_Empleo, fill = Sex)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7) +  # Apilar las barras
+  scale_fill_manual(values = c("Female" = "gray60",  
+                               "Male" = "gray90",    
+                               "Total" = "gray30")) +  
+  labs(title = "Empleo por Género en Países Latinoamericanos de la OCDE",
+       x = "País", fill = "Género") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotar nombres de los países
+        axis.title.y = element_blank()) +  # Eliminar eje Y
+  geom_text(aes(label = paste0(round(Porcentaje_Empleo, 1), "%"), color = label_color), 
+            position = position_stack(vjust = 0.5), 
+            size = 3) + 
+  scale_color_identity()
+```
+
+### Día 30 **FiveThirtyEight**
+
+Los datos utilizados en este grafico son resultado del proceso de Predicción de contagios de Dengue visto en la clase de Machine Learning, no hicimos todo el proceso de analisis solo tomamos como referencia el resultado final del ejercicio.
+
+```{r echo=FALSE,message=FALSE,error=FALSE,warning=FALSE}
+dengue_result <- read.csv("practica2_pred_20241105235128.csv")
+
+dengue_result$Date <- as.Date(paste(dengue_result$year, dengue_result$weekofyear, 1, sep = "-"), format = "%Y-%U-%u")
+
+dengue_filtered <- dengue_result %>%
+  filter(city %in% c("sj", "iq"))
+
+# Crear el gráfico de líneas para San Juan e Iquitos
+ggplot(dengue_filtered, aes(x = Date, y = total_cases, color = city)) +
+  geom_line(linewidth = 1.2) +  # Usar linewidth en lugar de size
+  scale_color_manual(values = c("sj" = "#4c72b0", "iq" = "#dd6e3f")) +  # Colores diferentes para cada ciudad
+  labs(title = "Evolución de Casos de Dengue en San Juan e Iquitos (2008)",
+       x = "Semana del Año", y = "Número de Casos de Dengue", color = "Ciudad") + 
+  theme_minimal() +  # Estilo limpio
+  theme(
+    text = element_text(family = "Arial"),  # Fuente clara
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    panel.grid = element_line(color = "gray90"),  # Líneas de cuadrícula suaves
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Rotar etiquetas del eje X
+  ) +
+  theme(legend.position = "top")
+```
+
+Este gráfico muestra los casos de dengue en San Juan y como estos han evolucionado a lo largo del tiempo (por semanas), con un color suave que no distrae la atención de los datos. Es fácil de leer y sigue el estilo claro y conciso de FiveThirtyEight.
